@@ -1,0 +1,389 @@
+#include "mbed.h"
+
+/*****stepper motor********/
+DigitalOut m1(p9);  //four pins for bipolar stepper
+DigitalOut m2(p10);
+DigitalOut m3(p11);
+DigitalOut m4(p12);
+void stepperOn(int on);//function to turn or stop motor
+int on;
+/**********keypad********/
+DigitalOut pin8(p21); //output pin on p21,p28,p29,p30
+DigitalOut pin4(p28);
+DigitalOut pin2(p29);
+DigitalOut pin1(p30);
+
+InterruptIn pin7(p23);//interrupt input in p23,p24,p25,p27
+InterruptIn pin6(p24);
+InterruptIn pin5(p25);
+InterruptIn pin3(p27);
+Timer debounce;//debounce timer
+Serial pc(USBTX, USBRX);//Display on Computer
+
+void row1(void);//function to scan keypad row1
+void row2(void);//row2
+void row3(void);//row3
+void row4(void);//row4
+Ticker keypad_input;
+void keypad();  // Function to determine keypress
+bool input=false;
+int buffer[3];
+int threshold;
+int quantity;
+int n=0;
+int digital=0;
+/**********************************/
+/**********flow rate sensor********/
+InterruptIn sensorPin(p5);    //reading from flow rate sensor
+float calibrationFactor = 4.5;// The hall-effect flow sensor outputs approximately 4.5 pulses per second per
+int pulseCount;                     // litre/minute of flow.
+float flowRate;
+float flowMilliLitres;
+float totalMilliLitres;
+unsigned long oldTime;
+unsigned int frac;
+Timer TimeCounter;//debounce timer
+void pulseCounter(void);//interrupt to count pulse
+/***************************************/
+/**********Interact with mbed********/
+DigitalIn communicatePin(p20); //reading from second mbed
+float ADC = 0;
+DigitalOut myled1(LED1);  //as indicator
+DigitalOut myled2(LED2);
+/***************************************/
+/*****flow rate sensor******************/
+DigitalOut motorPin1(p14);
+DigitalOut motorPin2(p13);
+/**********keypad***********************/
+extern "C" void mbed_reset(); //declare software reset
+
+int main()
+{
+    TimeCounter.start();
+    pulseCount        = 0;
+    flowRate          = 0.0;
+    flowMilliLitres   = 0;
+    totalMilliLitres  = 0;
+    oldTime           = 0;
+    sensorPin.fall(&pulseCounter);  // The Hall-effect sensor is connected to pin 20
+    // Configured to trigger on a FALLING state change (transition from HIGH
+    // state to LOW state)
+
+    pin8 = 0; //initialize all keypad output pin
+    pin1 = 0;
+    pin2 = 0;
+    pin4 = 0;
+    debounce.start();   //start debounce timer
+    pin3.rise(&row1);   //rising edge will trigger interrupt
+    pin5.rise(&row2);
+    pin6.rise(&row3);
+    pin7.rise(&row4);
+    pc.printf("\n\rPump in dosage (mL) (0~10)\n\r");
+    pc.printf("Press # when done, * to reset: ");
+
+    while(input==false) {  //wait user to input required dosage
+        pin8=1;//turn first row pin high
+        wait_ms(4);
+        pin8=0; //off first row, on second row
+        pin1=1;
+        wait_ms(4);
+        pin1=0; //off second row, on third row
+        pin2=1;
+        wait_ms(4);
+        pin2=0; //off third row, on forth row
+        pin4=1;
+        wait_ms(4);
+        pin4=0;
+    }
+    pin4=1;
+    pc.printf("\n\r");
+    while(1) {
+        stepperOn(on);
+        if((TimeCounter.read_ms() - oldTime) > 800) {  // Only process counters once per second
+            // Disable the interrupt while calculating flow rate and sending the value to
+            // the host
+            __disable_irq();    // Disable Interrupts
+            flowRate = (1000.0 / (TimeCounter.read_ms() - oldTime) * pulseCount) / calibrationFactor;
+            oldTime = TimeCounter.read_ms();
+            flowMilliLitres = (flowRate / 60) * 1000;
+            totalMilliLitres += flowMilliLitres;
+            float total=totalMilliLitres/10;
+            
+            if(total<quantity && communicatePin==1) {
+                on=1;
+            } 
+            else if(total >= quantity && communicatePin ==1) {
+                pc.printf("Set sliding scale time interval (in sec): ");
+                // TimeInterval = take input ----------------- <===== set up
+                // TimeCounter.stop;
+                // TimeCounter.reset;
+                // TimeCounter.start; --- <== timer?
+               
+                //while(TimeCounter<timeInterval){
+                //pc.printf("\n\rDuration %d", TimeCounter);
+                //pc.printf(" Time Interval: %d\n\r", timeInterval);
+                //}
+            
+                //--------------Check patient status----------------------------------
+                // In a real world setting the program will be connected to patient monitoring system.
+                // For proof of concept, the user will input a manual monitoring condition of the patient.
+                
+                // pc.printf(("\n\rFor proof of concept please select an option:");
+                // pc.printf("\n\rOption 1: Patient condition improved. Stop medication);
+                // pc.printf("\n\rOption 2: Patient needs medical attention. Continue medication);
+                // take input and set the dosage to previous value of medication(quantity) --- <=== set up
+                
+            }
+            else {
+                on=0;
+            }
+            
+            pc.printf("Medication Flow Rate: ");
+            pc.printf("%.1f",flowMilliLitres/10);
+            pc.printf("mL/Sec");
+
+            pc.printf("    Required Dosage: ");
+            pc.printf("%d",quantity);
+            pc.printf("mL");
+
+            pc.printf("    Current Dosage: ");
+            pc.printf("%.1f",total);
+            pc.printf("mL\n\r");
+
+
+
+            pulseCount = 0;
+
+            __enable_irq();     // Enable Interrupts
+
+
+        }
+    }
+}
+
+
+
+void pulseCounter()
+{
+    // Increment the pulse counter
+    pulseCount++;
+}
+void keypad()
+{
+    pin8=1;//turn first row pin high
+    wait_ms(4);
+    pin8=0; //off first row, on second row
+    pin1=1;
+    wait_ms(4);
+    pin1=0; //off second row, on third row
+    pin2=1;
+    wait_ms(4);
+    pin2=0; //off third row, on forth row
+    pin4=1;
+    wait_ms(4);
+    pin4=0;
+}
+void row1()     //enter this function when rising edge detected on first row
+{
+    if (debounce.read_ms()>100) { //debounce timer to eliminate imperfection of switch
+
+
+        if(pin8==1) { //if first row pin high, output "1" and correspond freq
+            pc.printf("1");
+            buffer[n]=1;
+            n++;
+
+        } else if (pin1==1) { //if second row pin high, output "4" and correspond freq
+            pc.printf("4");
+            buffer[n]=4;
+            n++;
+
+        } else if (pin2==1) { //if third row pin high, output "7" and correspond freq
+            pc.printf("7");
+            buffer[n]=7;
+            n++;
+
+        } else { //if forth row pin high, output "*" and correspond freq
+            pc.printf("*");
+            mbed_reset();
+        }
+    }
+    debounce.reset();
+}
+
+void row2()     //enter this function when rising edge detected on second row
+{
+    if (debounce.read_ms()>100) { //debounce timer to eliminate imperfection of switch
+
+
+        if(pin8==1) { //if first row pin high, output "2" and correspond freq
+            pc.printf("2");
+            buffer[n]=2;
+            n++;
+
+        } else if (pin1==1) { //if second row pin high, output "5" and correspond freq
+            pc.printf("5");
+            buffer[n]=5;
+            n++;
+
+        } else if (pin2==1) { //if third row pin high, output "8" and correspond freq
+            pc.printf("8");
+            buffer[n]=8;
+            n++;
+
+        } else { //if forth row pin high, output "0" and correspond freq
+            pc.printf("0");
+            buffer[n]=0;
+            n++;
+
+
+        }
+    }
+    debounce.reset();
+}
+
+void row3()     //enter this function when rising edge detected on third row
+{
+    if (debounce.read_ms()>100) { //debounce timer to eliminate imperfection of switch
+
+
+        if(pin8==1) { //if first row pin high, output "3" and correspond freq
+            pc.printf("3");
+            buffer[n]=3;
+            n++;
+
+        } else if (pin1==1) { //if second row pin high, output "6" and correspond freq
+            pc.printf("6");
+            buffer[n]=6;
+            n++;
+
+        } else if (pin2==1) { //if third row pin high, output "9" and correspond freq
+            pc.printf("9");
+            buffer[n]=9;
+            n++;
+
+        } else { //if forth row pin high, output "#" and correspond freq
+            pc.printf("#");
+            if(n ==2) {
+                quantity=buffer[0]*10+buffer[1];
+                pc.printf("\tLiquid Quantity is %d mL",quantity);
+            } else {
+                quantity=buffer[0];
+                pc.printf("\tLiquid Quantity is %d mL",quantity);
+            }
+
+            pc.printf("\n\r");
+            input = true;
+            n = 0;
+
+
+        }
+    }
+    debounce.reset();
+}
+
+void row4()     //enter this function when rising edge detected on forth row
+{
+    if (debounce.read_ms()>100) { //debounce timer to eliminate imperfection of switch
+
+
+        if(pin8==1) { //if first row pin high, output "A" and correspond freq
+//            pc.printf("A");
+
+        } else if (pin1==1) { //if second row pin high, output "B" and correspond freq
+//            pc.printf("B");
+
+        } else if (pin2==1) { //if third row pin high, output "C" and correspond freq
+//            pc.printf("C");
+
+        } else { //if forth row pin high, output "D" and correspond freq
+//            pc.printf("D");
+            on=2;
+        }
+    }
+    debounce.reset();
+}
+
+void stepperOn(int motorOn)
+{
+    // motorOn == 1 is on, ==0 is off
+    if (motorOn == 1) {
+        {
+            // rotate the motor 1 step anticlockwise
+            for (int i = 1; i < 5; i++) {
+                switch (i) { // activate the ports A0, A2, A3, A3 in a binary sequence for steps
+                    case 4: {
+                        m1=1;
+                        m2=0;
+                        m3=1;
+                        m4=0;
+                    }
+                    break;
+                    case 3: {
+                        m1=0;
+                        m2=1;
+                        m3=1;
+                        m4=0;
+                    }
+                    break;
+                    case 2: {
+                        m1=0;
+                        m2=1;
+                        m3=0;
+                        m4=1;
+                    }
+                    break;
+                    case 1: {
+                        m1=1;
+                        m2=0;
+                        m3=0;
+                        m4=1;
+                    }
+                    break;
+                }
+                wait_us(1500); // wait time defines the speed
+            }
+        }
+    }
+    if (motorOn == 2) {
+        // rotate the motor 1 step clockwise
+        for (int i = 1; i < 5; i++) {
+            switch (i) { // activate the ports A0, A2, A3, A3 in a binary sequence for steps
+                case 1: {
+                    m1=1;
+                    m2=0;
+                    m3=1;
+                    m4=0;
+                }
+                break;
+                case 2: {
+                    m1=0;
+                    m2=1;
+                    m3=1;
+                    m4=0;
+                }
+                break;
+                case 3: {
+                    m1=0;
+                    m2=1;
+                    m3=0;
+                    m4=1;
+                }
+                break;
+                case 4: {
+                    m1=1;
+                    m2=0;
+                    m3=0;
+                    m4=1;
+                }
+                break;
+            }
+            wait_us(1500); // wait time defines the speed
+        }
+    } else {    //stop the motor
+        m1=0;
+        m2=0;
+        m3=0;
+        m4=0;
+    }
+}
