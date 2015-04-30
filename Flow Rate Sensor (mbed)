@@ -1,12 +1,13 @@
 #include "mbed.h"
 
 /*****stepper motor********/
-DigitalOut m1(p9);  //four pins for bipolar stepper
+DigitalOut m1(p9);
 DigitalOut m2(p10);
 DigitalOut m3(p11);
 DigitalOut m4(p12);
-void stepperOn(int on);//function to turn or stop motor
+void stepperOn(int on);
 int on;
+Timer durationCounter;
 /**********keypad********/
 DigitalOut pin8(p21); //output pin on p21,p28,p29,p30
 DigitalOut pin4(p28);
@@ -20,7 +21,7 @@ InterruptIn pin3(p27);
 Timer debounce;//debounce timer
 Serial pc(USBTX, USBRX);//Display on Computer
 
-void row1(void);//function to scan keypad row1
+void row1(void);//function to scan row1
 void row2(void);//row2
 void row3(void);//row3
 void row4(void);//row4
@@ -34,7 +35,8 @@ int n=0;
 int digital=0;
 /**********************************/
 /**********flow rate sensor********/
-InterruptIn sensorPin(p5);    //reading from flow rate sensor
+DigitalOut statusLed(LED2);
+InterruptIn sensorPin(p5);
 float calibrationFactor = 4.5;// The hall-effect flow sensor outputs approximately 4.5 pulses per second per
 int pulseCount;                     // litre/minute of flow.
 float flowRate;
@@ -45,18 +47,18 @@ unsigned int frac;
 Timer TimeCounter;//debounce timer
 void pulseCounter(void);//interrupt to count pulse
 /***************************************/
-/**********Interact with mbed********/
-DigitalIn communicatePin(p20); //reading from second mbed
+/**********Interact with Arduino********/
+DigitalIn communicatePin(p20);
 float ADC = 0;
-DigitalOut myled1(LED1);  //as indicator
+DigitalOut myled1(LED1);
 DigitalOut myled2(LED2);
 /***************************************/
-/*****flow rate sensor******************/
+/*****flow rate sensor********/
 DigitalOut motorPin1(p14);
 DigitalOut motorPin2(p13);
-/**********keypad***********************/
-extern "C" void mbed_reset(); //declare software reset
+/**********keypad********/
 
+extern "C" void mbed_reset(); //declare software reset
 int main()
 {
     TimeCounter.start();
@@ -78,10 +80,12 @@ int main()
     pin5.rise(&row2);
     pin6.rise(&row3);
     pin7.rise(&row4);
+    pc.printf("\n\rSet sliding time window (in sec): 15 ");
     pc.printf("\n\rPump in dosage (mL) (0~10)\n\r");
     pc.printf("Press # when done, * to reset: ");
-
-    while(input==false) {  //wait user to input required dosage
+    int TimeInterval = 15000;   // set sliding time window
+//    keypad_input.attach(&keypad, 0.001);
+    while(input==false) {  //wait user to input dosage
         pin8=1;//turn first row pin high
         wait_ms(4);
         pin8=0; //off first row, on second row
@@ -98,7 +102,7 @@ int main()
     pin4=1;
     pc.printf("\n\r");
     while(1) {
-        stepperOn(on);
+        stepperOn(on);  // move the motor
         if((TimeCounter.read_ms() - oldTime) > 800) {  // Only process counters once per second
             // Disable the interrupt while calculating flow rate and sending the value to
             // the host
@@ -109,35 +113,46 @@ int main()
             totalMilliLitres += flowMilliLitres;
             float total=totalMilliLitres/10;
             
+            // This condition moves the motor to continuously 
             if(total<quantity && communicatePin==1) {
-                on=1;
+            // The current total of the medicaiton is less than the required dosage
+            // The heart rate is abnormal
+                on=1
             } 
-            else if(total >= quantity && communicatePin ==1) {
-                pc.printf("Set sliding scale time interval (in sec): ");
-                // TimeInterval = take input ----------------- <===== set up
-                // TimeCounter.stop;
-                // TimeCounter.reset;
-                // TimeCounter.start; --- <== timer?
-               
-                //while(TimeCounter<timeInterval){
-                //pc.printf("\n\rDuration %d", TimeCounter);
-                //pc.printf(" Time Interval: %d\n\r", timeInterval);
-                //}
             
-                //--------------Check patient status----------------------------------
-                // In a real world setting the program will be connected to patient monitoring system.
-                // For proof of concept, the user will input a manual monitoring condition of the patient.
-                
-                // pc.printf(("\n\rFor proof of concept please select an option:");
-                // pc.printf("\n\rOption 1: Patient condition improved. Stop medication);
-                // pc.printf("\n\rOption 2: Patient needs medical attention. Continue medication);
-                // take input and set the dosage to previous value of medication(quantity) --- <=== set up
-                
-            }
+            // This condition stops the motor
             else {
                 on=0;
+                pc.printf("\n\r Patient condition improved. Stop medication\n\r");
+
             }
             
+            // This condition starts the monitoring sliding time window
+            if(total >= quantity && communicatePin ==1) {
+                // The current total dosage has meet or exceeded the required dosage
+                // The heart continues to have abnormal heart rate
+                pc.printf("\n\rPatient needs medical attention. Continue medication\n\r");
+                
+                // Start timer for time window duration
+                durationCounter.stop();
+                durationCounter.reset();
+                durationCounter.start(); 
+                
+                // Display the time passed (duration of the time window)
+                int duration = 0;
+                pc.printf("\n\rSliding time Window: %d sec", TimeInterval/1000);
+                while(duration<TimeInterval){
+                duration = durationCounter.read_ms();
+                    if(duration%1000 == 0){ // only show time when it is in integers ex) 1, 2, 3, 4, ...
+                        pc.printf("\n\rDuration: %d sec", duration/1000);
+                    }
+                }
+                
+                // Reset the current total medication back to 0 to restart the medication
+                totalMilliLitres = 0;
+            }
+            
+            // Show user current measures and variables
             pc.printf("Medication Flow Rate: ");
             pc.printf("%.1f",flowMilliLitres/10);
             pc.printf("mL/Sec");
@@ -150,18 +165,11 @@ int main()
             pc.printf("%.1f",total);
             pc.printf("mL\n\r");
 
-
-
             pulseCount = 0;
-
             __enable_irq();     // Enable Interrupts
-
-
         }
     }
 }
-
-
 
 void pulseCounter()
 {
@@ -380,10 +388,11 @@ void stepperOn(int motorOn)
             }
             wait_us(1500); // wait time defines the speed
         }
-    } else {    //stop the motor
+    } else {
         m1=0;
         m2=0;
         m3=0;
         m4=0;
     }
 }
+
