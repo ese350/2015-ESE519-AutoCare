@@ -61,8 +61,8 @@ DigitalOut motorPin2(p13);
 extern "C" void mbed_reset(); //declare software reset
 int main()
 {
-    TimeCounter.start();
-    pulseCount        = 0;
+    TimeCounter.start();   //pulse counter of flow rate sensor
+    pulseCount        = 0; //initialise all the parameters for flow rate sensor
     flowRate          = 0.0;
     flowMilliLitres   = 0;
     totalMilliLitres  = 0;
@@ -81,10 +81,10 @@ int main()
     pin6.rise(&row3);
     pin7.rise(&row4);
     pc.printf("\n\rSet sliding time window (in sec): 15 ");
-    pc.printf("\n\rPump in dosage (mL) (0~10)\n\r");
+    pc.printf("\n\rPump in dosage (mL) (0~10)\n\r");  //user to input required dosage
     pc.printf("Press # when done, * to reset: ");
     int TimeInterval = 15000;   // set sliding time window
-//    keypad_input.attach(&keypad, 0.001);
+
     while(input==false) {  //wait user to input dosage
         pin8=1;//turn first row pin high
         wait_ms(4);
@@ -290,7 +290,7 @@ void row3()     //enter this function when rising edge detected on third row
     debounce.reset();
 }
 
-void row4()     //enter this function when rising edge detected on forth row
+void row4()     //we are not using this function in the actual roll out
 {
     if (debounce.read_ms()>100) { //debounce timer to eliminate imperfection of switch
 
