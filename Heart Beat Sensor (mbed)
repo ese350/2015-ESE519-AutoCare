@@ -1,18 +1,18 @@
 #include "mbed.h"
 
-DigitalOut myled(LED1);
+DigitalOut myled(LED1); //led as indicator
 DigitalOut myled2(LED2);
 AnalogIn Ain(p20); //analog reading from sensor
 Serial pc(USBTX, USBRX);//Display on Computer
 
-int SensorValue;
-float ADC;
+int SensorValue; //modified sensor value send to computer
+float ADC;  //raw value from sensor in range 0~1023
 char val; //Data received from serial
 DigitalOut communicatePin(p21); //pin to indicate heart rate normal or not
 
 int main()
 {
-    myled=0;    //led as indicator
+    myled=0;    //initialise
     myled2=0;
     pc.baud (115200); //set baud rate of serial to processing
     while(1) {
@@ -24,7 +24,7 @@ int main()
         } else {
             ADC = Ain*1023;   //convert analog input to range 0~1023
             SensorValue = (int)ADC; //change float to int
-            pc.printf("%d\r\n",SensorValue); //send to processing
+            pc.printf("%d\r\n",SensorValue); //send to computer
             wait_ms(5);   //sampling rate 5ms
         }
 
